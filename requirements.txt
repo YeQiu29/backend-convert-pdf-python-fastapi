@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pypdf
+pdf2docx
+pdf2image
+reportlab
+python-pptx
+camelot-py[cv]
+opencv-python-headless
+openpyxl
+pandas
+PyMuPDF
+Pillow
