@@ -3,7 +3,6 @@ import tempfile
 import zipfile
 from io import BytesIO
 from typing import List
-import json
 
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
@@ -669,14 +668,14 @@ async def delete_pages(
         raise HTTPException(500, f"Terjadi error saat menghapus halaman: {e}")
 
 
-@app.post("/arrange-pages", summary="Atur ulang urutan dan rotasi halaman PDF")
+@app.post("/arrange-pages", summary="Atur ulang urutan halaman PDF")
 async def arrange_pages(
     file: UploadFile = File(..., description="File PDF yang akan diatur."),
-    new_order: str = Form(..., description="Urutan halaman baru, dipisah koma (cth: '3,1,2,4')"),
-    rotations: str = Form("{}", description="JSON string rotasi per halaman (cth: '{\"1\": 90, \"2\": 180}')")
+    new_order: str = Form(..., description="Urutan halaman baru, dipisah koma (cth: '3,1,2,4')")
 ):
     """
-    Mengatur ulang halaman PDF dan merotasinya berdasarkan urutan dan data rotasi yang diberikan.
+    Mengatur ulang halaman PDF berdasarkan urutan 1-indexed yang diberikan.
+    Jumlah halaman di urutan baru harus sama dengan total halaman PDF.
     """
     if file.content_type != "application/pdf":
         raise HTTPException(400, "Hanya file PDF yang diizinkan.")
@@ -697,12 +696,6 @@ async def arrange_pages(
         except ValueError:
             raise HTTPException(400, "Format 'new_order' tidak valid. Gunakan angka dipisah koma.")
 
-        # Parsing input 'rotations'
-        try:
-            rotation_map = json.loads(rotations)
-        except json.JSONDecodeError:
-            raise HTTPException(400, "Format 'rotations' tidak valid. Harus berupa JSON string.")
-
         # Validasi
         if len(order_indices) != total_pages:
             raise HTTPException(400, f"Jumlah halaman di 'new_order' ({len(order_indices)}) tidak cocok dengan total halaman PDF ({total_pages}).")
@@ -713,21 +706,9 @@ async def arrange_pages(
 
         writer = PdfWriter()
         
-        # Buat daftar halaman asli
-        original_pages = list(reader.pages)
-
-        # Tambahkan halaman sesuai urutan baru dan rotasi
-        for original_page_index in order_indices:
-            page = original_pages[original_page_index]
-            
-            # Dapatkan rotasi untuk halaman ASLI (1-indexed)
-            # Kunci di rotation_map adalah string "1", "2", dst.
-            rotation_angle = rotation_map.get(str(original_page_index + 1), 0)
-            
-            if rotation_angle != 0:
-                page.rotate(rotation_angle)
-            
-            writer.add_page(page)
+        # Tambahkan halaman sesuai urutan baru
+        for index in order_indices:
+            writer.add_page(reader.pages[index])
 
         output_io = BytesIO()
         writer.write(output_io)

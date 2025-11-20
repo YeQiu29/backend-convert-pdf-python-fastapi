@@ -430,7 +430,7 @@ async def pdf_to_powerpoint(file: UploadFile = File(..., description="File PDF y
         slide_height = prs.slide_height
 
         for img in images:
-            # Layout 6 adalah layout kosong (blank)
+            # Layout 6 adalah layout kosong (blank) 
             blank_slide_layout = prs.slide_layouts[6] 
             slide = prs.slides.add_slide(blank_slide_layout)
 
@@ -512,7 +512,7 @@ async def pdf_to_excel(
                 
                 ws = writer.sheets[sheet_name]
                 page_num = table.page - 1 
-                page = pdf_doc.load_page(page_num)
+                page = pdf_doc.load_page(page_num) 
                 
                 page_height = page.rect.height
                 
@@ -840,6 +840,73 @@ async def add_signature(
     except Exception as e:
         raise HTTPException(500, f"Terjadi error saat menambah tanda tangan: {e}")
 
+@app.post("/scan", summary="Apply scanner effect to images and convert to PDF or ZIP")
+async def scan_images(
+    files: List[UploadFile] = File(..., description="Images to be scanned (max 20)."),
+    effect: str = Form("scan", description="Scanner effect: 'scan', 'magic_color', 'original'."),
+    output_format: str = Form("pdf", description="Output format: 'pdf' or 'jpg'.")
+):
+    if len(files) > 20:
+        raise HTTPException(400, "Cannot process more than 20 images at a time.")
+    if effect not in ['scan', 'magic_color', 'original']:
+        raise HTTPException(400, "Invalid effect. Choose 'scan', 'magic_color', or 'original'.")
+    if output_format not in ['pdf', 'jpg']:
+        raise HTTPException(400, "Invalid output format. Choose 'pdf' or 'jpg'.")
+
+    processed_images = []
+    for file in files:
+        if not file.content_type.startswith("image/"):
+            raise HTTPException(400, f"File {file.filename} is not a valid image.")
+        
+        image_bytes = await file.read()
+        img = Image.open(BytesIO(image_bytes)).convert("RGB")
+
+        if effect == 'scan':
+            # Grayscale and high contrast
+            img = img.convert('L')
+            img = img.point(lambda x: 0 if x < 140 else 255, '1')
+            img = img.convert('RGB') # Convert back to RGB for consistent processing
+        elif effect == 'magic_color':
+            # Enhance contrast and brightness
+            from PIL import ImageEnhance
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.8) # Increase contrast
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(1.1) # Slightly increase brightness
+
+        processed_images.append(img)
+
+    if output_format == 'pdf':
+        output_io = BytesIO()
+        if processed_images:
+            processed_images[0].save(
+                output_io, 
+                format="PDF", 
+                resolution=100.0, 
+                save_all=True, 
+                append_images=processed_images[1:]
+            )
+        output_io.seek(0)
+        return StreamingResponse(
+            output_io,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=scanned_document.pdf"}
+        )
+    
+    elif output_format == 'jpg':
+        zip_io = BytesIO()
+        with zipfile.ZipFile(zip_io, 'w') as zf:
+            for i, img in enumerate(processed_images):
+                img_io = BytesIO()
+                img.save(img_io, format='JPEG')
+                img_io.seek(0)
+                zf.writestr(f"scanned_page_{i+1}.jpg", img_io.getvalue())
+        zip_io.seek(0)
+        return StreamingResponse(
+            zip_io,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=scanned_images.zip"}
+        )
         
 # --- Jalankan Server ---
 if __name__ == "__main__":
